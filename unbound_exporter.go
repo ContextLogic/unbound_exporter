@@ -189,6 +189,12 @@ var (
 			nil,
 			"^num\\.rrset\\.bogus$"),
 		newUnboundMetric(
+			"tcp_usage_total",
+			"Total number of held TCP buffers for incoming connections.",
+			prometheus.GaugeValue,
+			[]string{"thread"},
+			"^thread(\\d+)\\.tcpusage$"),
+		newUnboundMetric(
 			"time_elapsed_seconds",
 			"Time since last statistics printout in seconds.",
 			prometheus.CounterValue,
