@@ -12,4 +12,4 @@ LABEL description="Prometheus Unbound exporter"
 RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 COPY --from=0 /go/src/github.com/wish/unbound_exporter/unbound_exporter .
-CMD ./root/unbound_exporter
+CMD /root/unbound_exporter
