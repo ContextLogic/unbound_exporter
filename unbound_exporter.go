@@ -236,6 +236,12 @@ var (
 			prometheus.GaugeValue,
 			nil,
 			"^total\\.recursion\\.time\\.median$"),
+		newUnboundMetric(
+			"queries_ip_ratelimited",
+			"Total number of queries that were ratelimited.",
+			prometheus.CounterValue,
+			[]string{"thread"},
+			"^thread(\\d+)\\.num\\.queries_ip_ratelimited$"),
 	}
 )
 
