@@ -187,6 +187,18 @@ var (
 			[]string{"thread"},
 			"^thread([0-9]+)\\.requestlist\\.overwritten$"),
 		newUnboundMetric(
+			"request_list_avg_total",
+			"Total number of requests in the request list that were avg by newer entries.",
+			prometheus.CounterValue,
+			[]string{"thread"},
+			"^thread([0-9]+)\\.requestlist\\.avg$"),
+		newUnboundMetric(
+			"request_list_max_total",
+			"Total number of requests in the request list that were max by newer entries.",
+			prometheus.CounterValue,
+			[]string{"thread"},
+			"^thread([0-9]+)\\.requestlist\\.max$"),
+		newUnboundMetric(
 			"recursive_replies_total",
 			"Total number of replies sent to queries that needed recursive processing.",
 			prometheus.CounterValue,
