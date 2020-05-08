@@ -10,6 +10,6 @@ update-ca-certificates
 
 # Build the unbound_exporter.
 cd /unbound_exporter
-go build --ldflags '-extldflags "-static"'
+go build -ldflags "-linkmode external -extldflags -static" -a
 strip unbound_exporter
 EOF
