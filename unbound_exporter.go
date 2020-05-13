@@ -21,15 +21,19 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
 	"sort"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/common/log"
 )
 
 var (
@@ -147,6 +151,12 @@ var (
 			nil,
 			"^num\\.query\\.tcp$"),
 		newUnboundMetric(
+			"query_tls_total",
+			"Total number of queries that were made using TCP TLS towards the Unbound server.",
+			prometheus.CounterValue,
+			nil,
+			"^num\\.query\\.tls$"),
+		newUnboundMetric(
 			"query_types_total",
 			"Total number of queries with a given query type.",
 			prometheus.CounterValue,
@@ -176,6 +186,18 @@ var (
 			prometheus.CounterValue,
 			[]string{"thread"},
 			"^thread([0-9]+)\\.requestlist\\.overwritten$"),
+		newUnboundMetric(
+			"request_list_avg_total",
+			"Total number of requests in the request list that were avg by newer entries.",
+			prometheus.CounterValue,
+			[]string{"thread"},
+			"^thread([0-9]+)\\.requestlist\\.avg$"),
+		newUnboundMetric(
+			"request_list_max_total",
+			"Total number of requests in the request list that were max by newer entries.",
+			prometheus.CounterValue,
+			[]string{"thread"},
+			"^thread([0-9]+)\\.requestlist\\.max$"),
 		newUnboundMetric(
 			"recursive_replies_total",
 			"Total number of replies sent to queries that needed recursive processing.",
@@ -242,6 +264,18 @@ var (
 			prometheus.CounterValue,
 			[]string{"thread"},
 			"^thread(\\d+)\\.num\\.queries_ip_ratelimited$"),
+		newUnboundMetric(
+			"msg_cache_count",
+			"The Number of Messages cached",
+			prometheus.GaugeValue,
+			nil,
+			"^msg\\.cache\\.count$"),
+		newUnboundMetric(
+			"rrset_cache_count",
+			"The Number of rrset cached",
+			prometheus.GaugeValue,
+			nil,
+			"^rrset\\.cache\\.count$"),
 	}
 )
 
@@ -349,8 +383,17 @@ func CollectFromFile(path string, ch chan<- prometheus.Metric) error {
 	return CollectFromReader(conn, ch)
 }
 
-func CollectFromSocket(host string, tlsConfig *tls.Config, ch chan<- prometheus.Metric) error {
-	conn, err := tls.Dial("tcp", host, tlsConfig)
+func CollectFromSocket(socketFamily string, host string, tlsConfig *tls.Config, ch chan<- prometheus.Metric) error {
+	var (
+		conn net.Conn
+		err  error
+	)
+
+	if socketFamily == "unix" {
+		conn, err = net.Dial(socketFamily, host)
+	} else {
+		conn, err = tls.Dial(socketFamily, host, tlsConfig)
+	}
 	if err != nil {
 		return err
 	}
@@ -362,11 +405,25 @@ func CollectFromSocket(host string, tlsConfig *tls.Config, ch chan<- prometheus.
 }
 
 type UnboundExporter struct {
-	host      string
-	tlsConfig tls.Config
+	socketFamily string
+	host         string
+	tlsConfig    tls.Config
 }
 
 func NewUnboundExporter(host string, ca string, cert string, key string) (*UnboundExporter, error) {
+	u, err := url.Parse(host)
+	if err != nil {
+		return &UnboundExporter{}, err
+	}
+
+	if u.Scheme == "unix" {
+		return &UnboundExporter{
+			socketFamily: u.Scheme,
+			host:         u.Path,
+			tlsConfig:    tls.Config{},
+		}, nil
+	}
+
 	/* Server authentication. */
 	caData, err := ioutil.ReadFile(ca)
 	if err != nil {
@@ -392,7 +449,8 @@ func NewUnboundExporter(host string, ca string, cert string, key string) (*Unbou
 	}
 
 	return &UnboundExporter{
-		host: host,
+		socketFamily: u.Scheme,
+		host: u.Host,
 		tlsConfig: tls.Config{
 			Certificates: []tls.Certificate{keyPair},
 			RootCAs:      roots,
@@ -409,7 +467,7 @@ func (e *UnboundExporter) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (e *UnboundExporter) Collect(ch chan<- prometheus.Metric) {
-	err := CollectFromSocket(e.host, &e.tlsConfig, ch)
+	err := CollectFromSocket(e.socketFamily, e.host, &e.tlsConfig, ch)
 	if err == nil {
 		ch <- prometheus.MustNewConstMetric(
 			unboundUpDesc,
@@ -428,7 +486,7 @@ func main() {
 	var (
 		listenAddress = flag.String("web.listen-address", ":9167", "Address to listen on for web interface and telemetry.")
 		metricsPath   = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
-		unboundHost   = flag.String("unbound.host", "localhost:8953", "Unbound control socket hostname and port number.")
+		unboundHost   = flag.String("unbound.host", "tcp://localhost:8953", "Unix or TCP address of Unbound control socket.")
 		unboundCa     = flag.String("unbound.ca", "/etc/unbound/unbound_server.pem", "Unbound server certificate.")
 		unboundCert   = flag.String("unbound.cert", "/etc/unbound/unbound_control.pem", "Unbound client certificate.")
 		unboundKey    = flag.String("unbound.key", "/etc/unbound/unbound_control.key", "Unbound client key.")
@@ -442,7 +500,7 @@ func main() {
 	}
 	prometheus.MustRegister(exporter)
 
-	http.Handle(*metricsPath, prometheus.Handler())
+	http.Handle(*metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`
 			<html>
